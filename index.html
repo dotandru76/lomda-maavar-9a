@@ -4725,7 +4725,7 @@ const Cloud = (function () {
         if (!pass || pass.length < 6) {
             return { ok: false, msg: "הסיסמה חייבת להכיל לפחות 6 תווים." };
         }
-        const email = `${u}@students.invalid`;
+        const email = `${u}@students.app`;
         try {
             const { data, error } = await withTimeout(client.auth.signUp({ email, password: pass }), 6000);
             if (error) {
@@ -4759,7 +4759,7 @@ const Cloud = (function () {
         if (!/^[a-z0-9_]{3,20}$/.test(u) || !pass || pass.length < 6) {
             return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
         }
-        const email = `${u}@students.invalid`;
+        const email = `${u}@students.app`;
         try {
             const { data, error } = await withTimeout(client.auth.signInWithPassword({ email, password: pass }), 6000);
             if (error) {

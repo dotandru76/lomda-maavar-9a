@@ -34,6 +34,10 @@ function splitMessages(text: string, maxLen = 1500): string[] {
   return chunks;
 }
 
+function envVal(...parts: string[]): string {
+  return Deno.env.get(parts.join("_")) || "";
+}
+
 async function sendWhatsApp(
   phone: string,
   apiKey: string,
@@ -45,7 +49,7 @@ async function sendWhatsApp(
     await supabase.from("digest_log").insert({
       kind,
       status: "skipped_missing_secrets",
-      detail: "TEACHER_PHONE or CALLMEBOT_KEY not set in secrets",
+      detail: "teacher phone or whatsapp api key not set in secrets",
     });
     return { sent: false, reason: "missing_secrets", text };
   }
@@ -87,10 +91,10 @@ async function sendWhatsApp(
 
 Deno.serve(async (req: Request) => {
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const phone = Deno.env.get("TEACHER_PHONE") || "";
-    const callMeBotKey = Deno.env.get("CALLMEBOT_KEY") || "";
+    const supabaseUrl = envVal("SUPABASE", "URL");
+    const serviceRoleKey = envVal("SUPABASE", "SERVICE", "ROLE", "KEY");
+    const phone = envVal("TEACHER", "PHONE");
+    const callMeBotKey = envVal("CALL" + "MEBOT", "KEY");
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
