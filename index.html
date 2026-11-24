@@ -1231,7 +1231,7 @@ table.proof-tbl th { background: #0f172a; color: var(--cyan); font-weight: 800; 
             <span class="rank-txt" id="rankTxt">יוצא לדרך</span>
         </div>
         <button class="hud-btn" onclick="goHome()">מפת 3 השבועות</button>
-        <button class="hud-btn" onclick="confirmReset()">איפוס</button>
+        <button class="hud-btn" id="hudResetBtn" onclick="confirmReset()">איפוס</button>
         <span class="hud-user-badge" id="hudUserBadge" hidden></span>
         <button class="hud-btn" id="hudAuthBtn" onclick="openAuthModal()">כניסה / הרשמה</button>
         <button class="hud-btn" id="hudLogoutBtn" onclick="Cloud.signOut()" hidden>יציאה</button>
@@ -4640,6 +4640,37 @@ const Cloud = (function () {
     let curUser = null;
     let curUsername = "";
     let pushTimer = null;
+    let sessionLoginLogged = false;
+    let pendingAuthEvent = null;
+
+    function emptyState(ownerUid) {
+        const st = { xp: 0, doneSteps: {}, seenSteps: {}, doneLessons: {}, doneExams: {}, drillXp: {}, lastRank: 0 };
+        if (ownerUid) st.owner = ownerUid;
+        return st;
+    }
+
+    function serializeStateForFirestore(st) {
+        return {
+            xp: Number(st.xp) || 0,
+            doneSteps: st.doneSteps || {},
+            seenSteps: st.seenSteps || {},
+            doneLessons: st.doneLessons || {},
+            doneExams: st.doneExams || {},
+            drillXp: st.drillXp || {},
+            lastRank: Number(st.lastRank) || 0
+        };
+    }
+
+    function isUserTypingInStep() {
+        const lessonActive = document.getElementById("lessonView") && document.getElementById("lessonView").classList.contains("active");
+        if (!lessonActive) return false;
+        const chkIn = document.getElementById("chkInput");
+        if (chkIn && (chkIn.value.trim().length > 0 || document.activeElement === chkIn)) return true;
+        const drIn = document.getElementById("drillInput");
+        if (drIn && (drIn.value.trim().length > 0 || document.activeElement === drIn)) return true;
+        if (typeof pfPicks !== "undefined" && Array.isArray(pfPicks) && pfPicks.some(v => v !== null)) return true;
+        return false;
+    }
 
     function withTimeout(promise, ms = 6000) {
         return Promise.race([
@@ -4661,11 +4692,13 @@ const Cloud = (function () {
         const badge = document.getElementById("hudUserBadge");
         const authBtn = document.getElementById("hudAuthBtn");
         const outBtn = document.getElementById("hudLogoutBtn");
+        const rstBtn = document.getElementById("hudResetBtn");
         if (!badge || !authBtn || !outBtn) return;
         if (!isEnabled()) {
             badge.hidden = true;
             authBtn.hidden = true;
             outBtn.hidden = true;
+            if (rstBtn) rstBtn.hidden = false;
             return;
         }
         if (curUser && curUsername) {
@@ -4673,16 +4706,17 @@ const Cloud = (function () {
             badge.hidden = false;
             authBtn.hidden = true;
             outBtn.hidden = false;
+            if (rstBtn) rstBtn.hidden = true;
         } else {
             badge.hidden = true;
             authBtn.hidden = false;
             outBtn.hidden = true;
+            if (rstBtn) rstBtn.hidden = false;
         }
     }
 
-    function mergeStates(localSt, cloudSt) {
-        if (!cloudSt || typeof cloudSt !== "object") return localSt;
-        const merged = {
+    function mergeStates(localSt, cloudSt, ownerUid) {
+        const base = (!cloudSt || typeof cloudSt !== "object") ? localSt : {
             xp: Math.max(Number(localSt.xp) || 0, Number(cloudSt.xp) || 0),
             doneSteps: Object.assign({}, cloudSt.doneSteps || {}, localSt.doneSteps || {}),
             seenSteps: Object.assign({}, cloudSt.seenSteps || {}, localSt.seenSteps || {}),
@@ -4691,20 +4725,31 @@ const Cloud = (function () {
             drillXp: {},
             lastRank: Math.max(Number(localSt.lastRank) || 0, Number(cloudSt.lastRank) || 0)
         };
-        const exKeys = new Set([...Object.keys(localSt.doneExams || {}), ...Object.keys(cloudSt.doneExams || {})]);
-        exKeys.forEach(k => {
-            merged.doneExams[k] = Math.max(Number((localSt.doneExams || {})[k]) || 0, Number((cloudSt.doneExams || {})[k]) || 0);
+        if (cloudSt && typeof cloudSt === "object") {
+            const exKeys = new Set([...Object.keys(localSt.doneExams || {}), ...Object.keys(cloudSt.doneExams || {})]);
+            exKeys.forEach(k => {
+                base.doneExams[k] = Math.max(Number((localSt.doneExams || {})[k]) || 0, Number((cloudSt.doneExams || {})[k]) || 0);
+            });
+            const drKeys = new Set([...Object.keys(localSt.drillXp || {}), ...Object.keys(cloudSt.drillXp || {})]);
+            drKeys.forEach(k => {
+                base.drillXp[k] = Math.max(Number((localSt.drillXp || {})[k]) || 0, Number((cloudSt.drillXp || {})[k]) || 0);
+            });
+        }
+        const calcXp = Object.keys(base.doneSteps || {}).length * 25
+            + Object.keys(base.doneExams || {}).filter(k => base.doneExams[k] > 0).length * 100
+            + Object.values(base.drillXp || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+        base.xp = Math.max(Number(base.xp) || 0, calcXp);
+        base.lastRank = Math.max(Number(base.lastRank) || 0, rankIndex(base.xp));
+        if (ownerUid) base.owner = ownerUid;
+        return base;
+    }
+
+    let authReadyResolver = null;
+    function waitForAuthSync() {
+        return new Promise(resolve => {
+            authReadyResolver = resolve;
+            setTimeout(() => { if (authReadyResolver === resolve) { authReadyResolver = null; resolve(); } }, 6500);
         });
-        const drKeys = new Set([...Object.keys(localSt.drillXp || {}), ...Object.keys(cloudSt.drillXp || {})]);
-        drKeys.forEach(k => {
-            merged.drillXp[k] = Math.max(Number((localSt.drillXp || {})[k]) || 0, Number((cloudSt.drillXp || {})[k]) || 0);
-        });
-        const calcXp = Object.keys(merged.doneSteps).length * 25
-            + Object.keys(merged.doneExams).filter(k => merged.doneExams[k] > 0).length * 100
-            + Object.values(merged.drillXp).reduce((a, b) => a + (Number(b) || 0), 0);
-        merged.xp = Math.max(merged.xp, calcXp);
-        merged.lastRank = Math.max(merged.lastRank, rankIndex(merged.xp));
-        return merged;
     }
 
     async function init() {
@@ -4720,13 +4765,34 @@ const Cloud = (function () {
                 if (user) {
                     curUser = user;
                     curUsername = extractUsername(user.email);
+                    if (state.owner && state.owner !== user.uid) {
+                        state = emptyState(user.uid);
+                        try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+                    } else {
+                        state.owner = user.uid;
+                        try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+                    }
                     updateAuthUI();
                     await pullState();
                     await pushState();
+                    if (pendingAuthEvent === "signup") {
+                        pendingAuthEvent = null;
+                        sessionLoginLogged = true;
+                        await logEvent("signup", {});
+                    } else if (pendingAuthEvent === "login") {
+                        pendingAuthEvent = null;
+                        sessionLoginLogged = true;
+                        await logEvent("login", {});
+                    } else if (!sessionLoginLogged) {
+                        sessionLoginLogged = true;
+                        await logEvent("login", {});
+                    }
+                    if (authReadyResolver) { const r = authReadyResolver; authReadyResolver = null; r(); }
                 } else {
                     curUser = null;
                     curUsername = "";
                     updateAuthUI();
+                    if (authReadyResolver) { const r = authReadyResolver; authReadyResolver = null; r(); }
                 }
             });
 
@@ -4747,18 +4813,17 @@ const Cloud = (function () {
         }
         const email = `${u}@students.app`;
         try {
+            pendingAuthEvent = "signup";
+            const syncDone = waitForAuthSync();
             const cred = await withTimeout(auth.createUserWithEmailAndPassword(email, pass), 6000);
             if (cred && cred.user) {
-                curUser = cred.user;
-                curUsername = u;
-                updateAuthUI();
-                await pullState();
-                await pushState();
-                await logEvent("signup", {});
+                await syncDone;
                 return { ok: true };
             }
+            pendingAuthEvent = null;
             return { ok: false, msg: "לא ניתן להשלים הרשמה כרגע." };
         } catch (err) {
+            pendingAuthEvent = null;
             const code = (err && err.code) || "";
             if (code.includes("email-already-in-use")) {
                 return { ok: false, msg: "שם המשתמש כבר תפוס — בחרו שם אחר או לחצו על כניסה." };
@@ -4778,18 +4843,17 @@ const Cloud = (function () {
         }
         const email = `${u}@students.app`;
         try {
+            pendingAuthEvent = "login";
+            const syncDone = waitForAuthSync();
             const cred = await withTimeout(auth.signInWithEmailAndPassword(email, pass), 6000);
             if (cred && cred.user) {
-                curUser = cred.user;
-                curUsername = u;
-                updateAuthUI();
-                await pullState();
-                await pushState();
-                await logEvent("login", {});
+                await syncDone;
                 return { ok: true };
             }
+            pendingAuthEvent = null;
             return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
         } catch (err) {
+            pendingAuthEvent = null;
             const code = (err && err.code) || "";
             if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
                 return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
@@ -4808,7 +4872,15 @@ const Cloud = (function () {
         } catch (e) {}
         curUser = null;
         curUsername = "";
+        sessionLoginLogged = false;
+        state = emptyState(null);
+        try { localStorage.removeItem(STORE_KEY); } catch (e) {}
         updateAuthUI();
+        updateHUD();
+        renderHome();
+        if (curLesson && document.getElementById("lessonView") && document.getElementById("lessonView").classList.contains("active")) {
+            renderStep();
+        }
     }
 
     async function pushState() {
@@ -4818,9 +4890,9 @@ const Cloud = (function () {
                 db.collection("progress").doc(curUser.uid).set({
                     user_id: curUser.uid,
                     username: curUsername,
-                    state: state,
+                    state: serializeStateForFirestore(state),
                     updated_at: new Date().toISOString()
-                }, { merge: true }),
+                }),
                 6000
             );
             return true;
@@ -4839,16 +4911,18 @@ const Cloud = (function () {
             if (snap && snap.exists) {
                 const data = snap.data();
                 if (data && data.state) {
-                    state = mergeStates(state, data.state);
+                    state = mergeStates(state, data.state, curUser.uid);
                     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
                     updateHUD();
                     renderHome();
-                    if (curLesson && document.getElementById("lessonView").classList.contains("active")) {
+                    if (curLesson && document.getElementById("lessonView").classList.contains("active") && !isUserTypingInStep()) {
                         renderStep();
                     }
                     return true;
                 }
             }
+            state.owner = curUser.uid;
+            try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
             return false;
         } catch (e) {
             return false;
@@ -4864,7 +4938,7 @@ const Cloud = (function () {
                     username: curUsername,
                     type: type,
                     detail: detail || {},
-                    created_at: new Date().toISOString()
+                    created_at: window.firebase.firestore.FieldValue.serverTimestamp()
                 }),
                 6000
             );

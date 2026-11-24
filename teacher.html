@@ -21,6 +21,7 @@
     --amber-soft: rgba(251, 191, 36, 0.14);
     --coral: #fb7185;
     --coral-soft: rgba(251, 113, 133, 0.14);
+    --violet: #a78bfa;
 }
 * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
 body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
@@ -36,7 +37,7 @@ body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; 
 }
 .hud-title { font-size: 15pt; font-weight: 900; color: var(--text); }
 .hud-sub { font-size: 10pt; color: var(--muted); }
-.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 18px 60px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 24px 18px 60px; }
 .btn {
     border-radius: 9px;
     padding: 8px 16px;
@@ -161,6 +162,91 @@ table.tbl th {
     font-size: 9.5pt;
     font-weight: 800;
 }
+
+/* Progress Matrix & Heatmap (Section D) */
+.mtx-tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9.5pt;
+}
+.mtx-tbl th, .mtx-tbl td {
+    border: 1px solid var(--border);
+    padding: 7px 8px;
+    text-align: center;
+}
+.mtx-tbl th {
+    background: var(--bg-2);
+    color: var(--cyan);
+    font-weight: 800;
+    font-size: 9pt;
+}
+.mtx-tbl td.u-col {
+    text-align: right;
+    background: var(--bg-2);
+    font-weight: 800;
+    white-space: nowrap;
+}
+.step-pips {
+    display: inline-flex;
+    gap: 4px;
+    direction: ltr;
+    align-items: center;
+    justify-content: center;
+}
+.pip {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    display: inline-block;
+}
+.pip.done {
+    background: var(--mint);
+    border-color: var(--mint);
+}
+.pip.seen {
+    background: var(--amber-soft);
+    border-color: var(--amber);
+}
+.heat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 10px;
+}
+.heat-lesson {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+}
+.heat-lesson-title {
+    font-size: 10pt;
+    font-weight: 800;
+    color: var(--text);
+    margin-bottom: 8px;
+}
+.heat-steps {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.heat-cell {
+    flex: 1;
+    min-width: 44px;
+    border-radius: 8px;
+    padding: 6px 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+    background: var(--card);
+}
+.heat-cell .hc-step { font-size: 8.5pt; color: var(--muted); font-weight: 700; }
+.heat-cell .hc-cnt { font-size: 11pt; font-weight: 900; margin-top: 2px; direction: ltr; }
+.heat-cell.h0 .hc-cnt { color: var(--muted); }
+.heat-cell.h1 { background: var(--amber-soft); border-color: rgba(251, 191, 36, 0.45); }
+.heat-cell.h1 .hc-cnt { color: var(--amber); }
+.heat-cell.h2 { background: var(--coral-soft); border-color: var(--coral); }
+.heat-cell.h2 .hc-cnt { color: var(--coral); }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -181,13 +267,12 @@ table.tbl th {
 <div class="wrap">
     <div class="login-box" id="loginBox">
         <h2>כניסת מורה</h2>
-        <p>בכניסה הראשונה בחרו סיסמת מורה (לפחות 6 תווים) ולחצו על <strong>יצירת חשבון מורה ראשוני</strong>. מהפעם השנייה לחצו על <strong>כניסה</strong>.</p>
+        <p>הזינו את סיסמת המורה ולחצו על <strong>כניסה</strong> כדי לצפות בנתוני הכיתה בזמן אמת.</p>
         <input class="in-field" type="text" value="teacher_admin" disabled aria-label="משתמש מורה">
-        <input class="in-field" id="tPass" type="password" placeholder="סיסמת מורה (לפחות 6 תווים)" onkeydown="if(event.key==='Enter') teacherAuth('signin')">
+        <input class="in-field" id="tPass" type="password" placeholder="סיסמת מורה" onkeydown="if(event.key==='Enter') teacherSignIn()">
         <div class="err-box" id="tErr"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button class="btn primary" onclick="teacherAuth('signin')">כניסה</button>
-            <button class="btn mint" onclick="teacherAuth('signup')">יצירת חשבון מורה ראשוני</button>
+            <button class="btn primary" onclick="teacherSignIn()">כניסה</button>
         </div>
     </div>
 
@@ -220,6 +305,38 @@ table.tbl th {
                 </div>
             </div>
             <pre class="digest-pre" id="digestPre">טוען נתונים...</pre>
+        </div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <h2>מפת חום כיתתית — צעדים עם הכי הרבה אירועי קושי (<span class="ltr">step_fail</span>)</h2>
+            </div>
+            <div class="heat-grid" id="heatMount"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <h2>מטריצת התקדמות לפי שיעור וצעד (ירוק = נפתר, צהוב = נצפה)</h2>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="mtx-tbl">
+                    <thead>
+                        <tr>
+                            <th>תלמיד</th>
+                            <th>1.1 כפל מקוצר (3)</th>
+                            <th>1.2 פירוק (4)</th>
+                            <th>1.3 טרינום (4)</th>
+                            <th>2.1 צמצום (4)</th>
+                            <th>2.2 כפל/חילוק (2)</th>
+                            <th>2.3 משוואות (4)</th>
+                            <th>3.1 דלתון (4)</th>
+                            <th>3.2 שו״ש (3)</th>
+                            <th>3.3 30-60-90 (4)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mtxBody"></tbody>
+                </table>
+            </div>
         </div>
 
         <div class="panel">
@@ -278,6 +395,48 @@ const CLOUD = {
 };
 
 const TEACHER_EMAIL = "teacher_admin@students.app";
+const TEACHER_UID = "8ivK0tHEYIMl3hRlPB4I7BXCoG43";
+
+const LESSONS_META = [
+    { id: "w1l1", label: "1.1 כפל מקוצר", steps: 3 },
+    { id: "w1l2", label: "1.2 פירוק לגורמים", steps: 4 },
+    { id: "w1l3", label: "1.3 טרינום ומשוואה", steps: 4 },
+    { id: "w2l1", label: "2.1 תחום הצבה וצמצום", steps: 4 },
+    { id: "w2l2", label: "2.2 כפל וחילוק שברים", steps: 2 },
+    { id: "w2l3", label: "2.3 משוואות רציונליות", steps: 4 },
+    { id: "w3l1", label: "3.1 הוכחה ודלתון", steps: 4 },
+    { id: "w3l2", label: "3.2 משפטים הפוכים שו״ש", steps: 3 },
+    { id: "w3l3", label: "3.3 משולש 30-60-90", steps: 4 }
+];
+
+function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, ch => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+    }[ch]));
+}
+
+function toMs(val) {
+    if (!val) return 0;
+    if (typeof val.toMillis === "function") return val.toMillis();
+    if (typeof val.seconds === "number") return val.seconds * 1000;
+    const t = new Date(val).getTime();
+    return isNaN(t) ? 0 : t;
+}
+
+function fmtDate(val) {
+    if (!val) return "-";
+    let d = null;
+    if (typeof val.toDate === "function") d = val.toDate();
+    else if (typeof val.seconds === "number") d = new Date(val.seconds * 1000);
+    else d = new Date(val);
+    if (!d || isNaN(d.getTime())) return esc(val);
+    return d.toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 firebase.initializeApp(CLOUD);
 const auth = firebase.auth();
 const db = firebase.firestore();
@@ -289,8 +448,8 @@ let allEvents = [];
 let initialLoadDone = false;
 
 auth.onAuthStateChanged(user => {
-    const isTeacher = user && user.email === TEACHER_EMAIL;
-    document.getElementById("loginBox").hidden = !!isTeacher;
+    const isTeacher = !!(user && user.uid === TEACHER_UID);
+    document.getElementById("loginBox").hidden = isTeacher;
     document.getElementById("dashBox").hidden = !isTeacher;
     document.getElementById("logoutBtn").hidden = !isTeacher;
     document.getElementById("notifBtn").hidden = !isTeacher || !("Notification" in window);
@@ -298,7 +457,7 @@ auth.onAuthStateChanged(user => {
     else stopLiveListeners();
 });
 
-async function teacherAuth(mode) {
+async function teacherSignIn() {
     const pass = document.getElementById("tPass").value;
     const errEl = document.getElementById("tErr");
     errEl.className = "err-box";
@@ -308,18 +467,14 @@ async function teacherAuth(mode) {
         return;
     }
     try {
-        if (mode === "signup") {
-            await auth.createUserWithEmailAndPassword(TEACHER_EMAIL, pass);
-        } else {
-            await auth.signInWithEmailAndPassword(TEACHER_EMAIL, pass);
+        const cred = await auth.signInWithEmailAndPassword(TEACHER_EMAIL, pass);
+        if (!cred.user || cred.user.uid !== TEACHER_UID) {
+            await auth.signOut();
+            errEl.textContent = "המשתמש אינו מורשה כחשבון מורה.";
+            errEl.className = "err-box show";
         }
     } catch (err) {
-        const code = (err && err.code) || "";
-        if (code.includes("email-already-in-use")) {
-            errEl.textContent = "חשבון המורה כבר נוצר — הזינו את הסיסמה ולחצו על כניסה.";
-        } else {
-            errEl.textContent = "סיסמה שגויה או שטרם יצרתם את חשבון המורה הראשוני.";
-        }
+        errEl.textContent = "סיסמה שגויה או תקלה בחיבור.";
         errEl.className = "err-box show";
     }
 }
@@ -348,16 +503,16 @@ function startLiveListeners() {
     stopLiveListeners();
     unsubProg = db.collection("progress").onSnapshot(snap => {
         allProgress = snap.docs.map(d => d.data());
-        allProgress.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+        allProgress.sort((a, b) => toMs(b.updated_at) - toMs(a.updated_at));
         renderDashboard();
     });
-    unsubEv = db.collection("events").orderBy("created_at", "desc").limit(300).onSnapshot(snap => {
+    unsubEv = db.collection("events").orderBy("created_at", "desc").limit(400).onSnapshot(snap => {
         if (initialLoadDone) {
             snap.docChanges().forEach(ch => {
                 if (ch.type === "added") {
                     const ev = ch.doc.data();
                     if (ev.type === "signup" && "Notification" in window && Notification.permission === "granted") {
-                        new Notification("תלמיד חדש נרשם: " + ev.username);
+                        new Notification("תלמיד חדש נרשם: " + String(ev.username || ""));
                     }
                 }
             });
@@ -368,25 +523,18 @@ function startLiveListeners() {
     });
 }
 
-function fmtDate(iso) {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-}
-
 function buildDigestText() {
     const now = new Date();
     const dd = String(now.getDate()).padStart(2, "0");
     const mm = String(now.getMonth() + 1).padStart(2, "0");
     const sinceMs = Date.now() - 24 * 60 * 60 * 1000;
-    const recent = allEvents.filter(e => new Date(e.created_at || 0).getTime() >= sinceMs).slice().reverse();
+    const recent = allEvents.filter(e => toMs(e.created_at) >= sinceMs).slice().reverse();
 
     const users = new Map();
     const stuckSet = new Set();
 
     recent.forEach(ev => {
-        const u = ev.username || "לא ידוע";
+        const u = String(ev.username || "לא ידוע");
         if (!users.has(u)) users.set(u, { steps: new Set(), exams: [], drills: 0, isNew: false });
         const s = users.get(u);
         const d = ev.detail || {};
@@ -402,8 +550,8 @@ function buildDigestText() {
 
     const fiveDaysMs = Date.now() - 5 * 24 * 60 * 60 * 1000;
     const inactive = allProgress
-        .filter(p => p.updated_at && new Date(p.updated_at).getTime() < fiveDaysMs)
-        .map(p => p.username);
+        .filter(p => p.updated_at && toMs(p.updated_at) > 0 && toMs(p.updated_at) < fiveDaysMs)
+        .map(p => String(p.username || ""));
 
     let newCount = 0;
     users.forEach(v => { if (v.isNew) newCount++; });
@@ -426,6 +574,57 @@ function buildDigestText() {
     };
 }
 
+function renderHeatmap() {
+    const failCounts = {};
+    allEvents.forEach(ev => {
+        if (ev.type === "step_fail" && ev.detail) {
+            const key = `${ev.detail.lesson || ""}_s${ev.detail.step ?? ""}`;
+            failCounts[key] = (failCounts[key] || 0) + 1;
+        }
+    });
+    const mount = document.getElementById("heatMount");
+    mount.innerHTML = LESSONS_META.map(les => {
+        const cells = [];
+        for (let i = 0; i < les.steps; i++) {
+            const k = `${les.id}_s${i}`;
+            const c = failCounts[k] || 0;
+            const cls = c === 0 ? "h0" : (c < 3 ? "h1" : "h2");
+            cells.push(`<div class="heat-cell ${cls}" title="${esc(les.label)} · צעד ${i + 1}">
+                <div class="hc-step">צעד ${i + 1}</div>
+                <div class="hc-cnt">${esc(c)}</div>
+            </div>`);
+        }
+        return `<div class="heat-lesson">
+            <div class="heat-lesson-title">${esc(les.label)}</div>
+            <div class="heat-steps">${cells.join("")}</div>
+        </div>`;
+    }).join("");
+}
+
+function renderMatrix() {
+    const mBody = document.getElementById("mtxBody");
+    if (allProgress.length === 0) {
+        mBody.innerHTML = `<tr><td colspan="10" style="color:var(--muted); text-align:center;">עדיין אין תלמידים רשומים</td></tr>`;
+        return;
+    }
+    mBody.innerHTML = allProgress.map(p => {
+        const st = p.state || {};
+        const done = st.doneSteps || {};
+        const seen = st.seenSteps || {};
+        const cols = LESSONS_META.map(les => {
+            const pips = [];
+            for (let i = 0; i < les.steps; i++) {
+                const k = `${les.id}_s${i}`;
+                const cls = done[k] ? "done" : (seen[k] ? "seen" : "");
+                const statusTxt = done[k] ? "נפתר" : (seen[k] ? "נצפה" : "טרם");
+                pips.push(`<span class="pip ${cls}" title="${esc(les.id)} צעד ${i + 1}: ${statusTxt}"></span>`);
+            }
+            return `<td><div class="step-pips">${pips.join("")}</div></td>`;
+        }).join("");
+        return `<tr><td class="u-col"><span class="ltr">${esc(p.username)}</span></td>${cols}</tr>`;
+    }).join("");
+}
+
 function renderDashboard() {
     document.getElementById("kpiTotal").textContent = allProgress.length;
     const dg = buildDigestText();
@@ -433,6 +632,9 @@ function renderDashboard() {
     document.getElementById("kpiNew24").textContent = dg.new24;
     document.getElementById("kpiStuck").textContent = dg.stuckCount;
     document.getElementById("digestPre").textContent = dg.text;
+
+    renderHeatmap();
+    renderMatrix();
 
     const pBody = document.getElementById("progBody");
     pBody.innerHTML = allProgress.length === 0
@@ -442,12 +644,12 @@ function renderDashboard() {
             const steps = Object.keys(st.doneSteps || {}).length;
             const lessons = Object.keys(st.doneLessons || {}).length;
             const examsObj = st.doneExams || {};
-            const exStr = Object.keys(examsObj).map(k => `${k}: ${examsObj[k]}`).join(", ") || "-";
+            const exStr = Object.keys(examsObj).map(k => `${esc(k)}: ${esc(examsObj[k])}`).join(", ") || "-";
             return `<tr>
-                <td><span class="ltr">${p.username || ""}</span></td>
-                <td><span class="ltr">${st.xp || 0} XP</span></td>
-                <td><span class="ltr">${steps} / 32</span></td>
-                <td><span class="ltr">${lessons} / 9</span></td>
+                <td><span class="ltr">${esc(p.username)}</span></td>
+                <td><span class="ltr">${esc(Number(st.xp) || 0)} XP</span></td>
+                <td><span class="ltr">${esc(steps)} / 32</span></td>
+                <td><span class="ltr">${esc(lessons)} / 9</span></td>
                 <td><span class="ltr">${exStr}</span></td>
                 <td>${fmtDate(p.updated_at)}</td>
             </tr>`;
@@ -464,19 +666,21 @@ function renderDashboard() {
     };
 
     const eBody = document.getElementById("evBody");
-    eBody.innerHTML = allEvents.slice(0, 60).map(ev => {
+    eBody.innerHTML = allEvents.slice(0, 80).map(ev => {
         const d = ev.detail || {};
+        const stepIdx = Number(d.step ?? 0) + 1;
         let det = "";
-        if (ev.type === "lesson_open") det = d.lesson || "";
-        else if (ev.type === "step_done") det = `${d.lesson || ""} צעד ${(d.step ?? 0) + 1} (ניסיונות: ${d.attempts || 1})`;
-        else if (ev.type === "step_fail") det = `<span class="tag-stuck">${d.lesson || ""} צעד ${(d.step ?? 0) + 1} (${d.n} שגיאות)</span>`;
-        else if (ev.type === "exam_done") det = `${d.exam || ""}: ${d.score}/${d.max}`;
-        else if (ev.type === "drill") det = `${d.lesson || ""} (+${d.count || 5})`;
+        if (ev.type === "lesson_open") det = esc(d.lesson);
+        else if (ev.type === "step_done") det = `${esc(d.lesson)} צעד ${esc(stepIdx)} (ניסיונות: ${esc(d.attempts || 1)})`;
+        else if (ev.type === "step_fail") det = `<span class="tag-stuck">${esc(d.lesson)} צעד ${esc(stepIdx)} (${esc(d.n)} שגיאות)</span>`;
+        else if (ev.type === "exam_done") det = `${esc(d.exam)}: ${esc(d.score)}/${esc(d.max)}`;
+        else if (ev.type === "drill") det = `${esc(d.lesson)} (+${esc(d.count || 5)})`;
         else if (ev.type === "signup") det = `<span class="tag-ok">תלמיד חדש</span>`;
+        const typeLbl = typeLabels[ev.type] || esc(ev.type);
         return `<tr>
             <td>${fmtDate(ev.created_at)}</td>
-            <td><span class="ltr">${ev.username || ""}</span></td>
-            <td>${typeLabels[ev.type] || ev.type}</td>
+            <td><span class="ltr">${esc(ev.username)}</span></td>
+            <td>${typeLbl}</td>
             <td>${det}</td>
         </tr>`;
     }).join("");

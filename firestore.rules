@@ -2,15 +2,39 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isTeacher() {
-      return request.auth != null && request.auth.token.email == 'teacher_admin@students.app';
+      return request.auth != null && request.auth.uid == '8ivK0tHEYIMl3hRlPB4I7BXCoG43';
+    }
+    function authUsername() {
+      return request.auth.token.email.split('@')[0];
+    }
+    function validState(s) {
+      return s is map
+        && s.keys().hasOnly(['xp', 'doneSteps', 'seenSteps', 'doneLessons', 'doneExams', 'drillXp', 'lastRank'])
+        && (!('doneSteps' in s) || (s.doneSteps is map && s.doneSteps.size() <= 40))
+        && (!('seenSteps' in s) || (s.seenSteps is map && s.seenSteps.size() <= 40))
+        && (!('doneLessons' in s) || (s.doneLessons is map && s.doneLessons.size() <= 12))
+        && (!('doneExams' in s) || (s.doneExams is map && s.doneExams.size() <= 5))
+        && (!('drillXp' in s) || (s.drillXp is map && s.drillXp.size() <= 12));
     }
     match /progress/{userId} {
       allow read: if (request.auth != null && request.auth.uid == userId) || isTeacher();
-      allow create, update: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['user_id', 'username', 'state', 'updated_at'])
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.username == authUsername()
+        && validState(request.resource.data.state);
     }
     match /events/{eventId} {
-      allow create: if request.auth != null && request.resource.data.user_id == request.auth.uid;
       allow read: if isTeacher();
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['user_id', 'username', 'type', 'detail', 'created_at'])
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.username == authUsername()
+        && request.resource.data.type in ['login', 'signup', 'lesson_open', 'step_done', 'step_fail', 'exam_done', 'drill']
+        && request.resource.data.detail is map
+        && request.resource.data.detail.size() <= 4
+        && request.resource.data.created_at == request.time;
     }
   }
 }
