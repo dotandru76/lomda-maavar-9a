@@ -1,5 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+function envVal(...parts: string[]): string {
+  return Deno.env.get(parts.join("_")) || "";
+}
+
 function getIsraelHourAndDate(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Jerusalem",
@@ -34,69 +38,159 @@ function splitMessages(text: string, maxLen = 1500): string[] {
   return chunks;
 }
 
-function envVal(...parts: string[]): string {
-  return Deno.env.get(parts.join("_")) || "";
+function sanitizeLog(str: string, secrets: string[]): string {
+  let out = str || "";
+  for (const sec of secrets) {
+    if (sec && sec.length >= 4) {
+      out = out.split(sec).join("[REDACTED]");
+    }
+  }
+  return out.slice(0, 300);
 }
 
-async function sendWhatsApp(
+async function sendWhatsAppChannel(
   phone: string,
   apiKey: string,
-  text: string,
+  chunks: string[],
   supabase: any,
   kind: string,
 ) {
-  if (!phone || !apiKey) {
-    await supabase.from("digest_log").insert({
-      kind,
-      status: "skipped_missing_secrets",
-      detail: "teacher phone or whatsapp api key not set in secrets",
-    });
-    return { sent: false, reason: "missing_secrets", text };
-  }
-
-  const chunks = splitMessages(text, 1500);
   const results = [];
   for (const chunk of chunks) {
     const url =
       `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(chunk)}&apikey=${encodeURIComponent(apiKey)}`;
     try {
       const resp = await fetch(url, { method: "GET" });
-      const bodyTxt = (await resp.text()).slice(0, 300);
+      const bodyTxt = sanitizeLog(await resp.text(), [apiKey, phone]);
       if (!resp.ok) {
         await supabase.from("digest_log").insert({
-          kind,
+          kind: `${kind}_whatsapp`,
           status: `http_${resp.status}`,
           detail: bodyTxt,
         });
         results.push({ ok: false, status: resp.status });
       } else {
         await supabase.from("digest_log").insert({
-          kind,
+          kind: `${kind}_whatsapp`,
           status: "sent",
           detail: `len=${chunk.length}`,
         });
         results.push({ ok: true, status: resp.status });
       }
     } catch (err: any) {
+      const errMsg = sanitizeLog(String(err?.message || err), [apiKey, phone]);
       await supabase.from("digest_log").insert({
-        kind,
+        kind: `${kind}_whatsapp`,
         status: "fetch_error",
-        detail: String(err?.message || err).slice(0, 300),
+        detail: errMsg,
       });
-      results.push({ ok: false, error: String(err?.message || err) });
+      results.push({ ok: false, error: errMsg });
     }
   }
-  return { sent: results.every((r) => r.ok), results, text };
+  return { channel: "whatsapp", ok: results.every((r) => r.ok), results };
+}
+
+async function sendTelegramChannel(
+  botToken: string,
+  chatId: string,
+  chunks: string[],
+  supabase: any,
+  kind: string,
+) {
+  const results = [];
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+  for (const chunk of chunks) {
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: chunk,
+        }),
+      });
+      const bodyTxt = sanitizeLog(await resp.text(), [botToken, chatId]);
+      if (!resp.ok) {
+        await supabase.from("digest_log").insert({
+          kind: `${kind}_telegram`,
+          status: `http_${resp.status}`,
+          detail: bodyTxt,
+        });
+        results.push({ ok: false, status: resp.status });
+      } else {
+        await supabase.from("digest_log").insert({
+          kind: `${kind}_telegram`,
+          status: "sent",
+          detail: `len=${chunk.length}`,
+        });
+        results.push({ ok: true, status: resp.status });
+      }
+    } catch (err: any) {
+      const errMsg = sanitizeLog(String(err?.message || err), [botToken, chatId]);
+      await supabase.from("digest_log").insert({
+        kind: `${kind}_telegram`,
+        status: "fetch_error",
+        detail: errMsg,
+      });
+      results.push({ ok: false, error: errMsg });
+    }
+  }
+  return { channel: "telegram", ok: results.every((r) => r.ok), results };
+}
+
+async function sendNotifications(
+  cfg: {
+    waPhone: string;
+    waKey: string;
+    tgToken: string;
+    tgChatId: string;
+  },
+  text: string,
+  supabase: any,
+  kind: string,
+) {
+  const chunks = splitMessages(text, 1500);
+  const channels: any[] = [];
+
+  if (cfg.waPhone && cfg.waKey) {
+    channels.push(
+      await sendWhatsAppChannel(cfg.waPhone, cfg.waKey, chunks, supabase, kind),
+    );
+  }
+
+  if (cfg.tgToken && cfg.tgChatId) {
+    channels.push(
+      await sendTelegramChannel(cfg.tgToken, cfg.tgChatId, chunks, supabase, kind),
+    );
+  }
+
+  if (channels.length === 0) {
+    await supabase.from("digest_log").insert({
+      kind,
+      status: "skipped_no_channels",
+      detail: "no notification channel secrets configured",
+    });
+    return { sent: false, reason: "no_channels_configured", channels: [], text };
+  }
+
+  return {
+    sent: channels.some((c) => c.ok),
+    channels,
+    text,
+  };
 }
 
 Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = envVal("SUPABASE", "URL");
     const serviceRoleKey = envVal("SUPABASE", "SERVICE", "ROLE", "KEY");
-    const phone = envVal("TEACHER", "PHONE");
-    const callMeBotKey = envVal("CALL" + "MEBOT", "KEY");
+    const waPhone = envVal("TEACHER", "PHONE");
+    const waKey = envVal("CALL" + "MEBOT", "KEY");
+    const tgToken = envVal("TELEGRAM", "BOT", "TOKEN");
+    const tgChatId = envVal("TELEGRAM", "CHAT", "ID");
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const notifyCfg = { waPhone, waKey, tgToken, tgChatId };
 
     const urlObj = new URL(req.url);
     const force = urlObj.searchParams.get("force") === "1";
@@ -115,10 +209,11 @@ Deno.serve(async (req: Request) => {
     if (payload?.mode === "signup" || record?.type === "signup") {
       const username = record?.username || payload?.username || "לא ידוע";
       const msg = `תלמיד חדש נרשם: ${username}`;
-      const res = await sendWhatsApp(phone, callMeBotKey, msg, supabase, "signup");
-      return new Response(JSON.stringify({ ok: true, mode: "signup", message: msg, ...res }), {
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-      });
+      const res = await sendNotifications(notifyCfg, msg, supabase, "signup");
+      return new Response(
+        JSON.stringify({ ok: true, mode: "signup", message: msg, ...res }),
+        { headers: { "Content-Type": "application/json; charset=utf-8" } },
+      );
     }
 
     // 2. Daily digest check (DST handling: runs at 17:00 and 18:00 UTC, sends only when local hour == 20 unless forced)
@@ -223,7 +318,7 @@ Deno.serve(async (req: Request) => {
     lines.push(`לא נכנסו 5 ימים ויותר: ${inactiveStr}`);
 
     const digestText = lines.join("\n");
-    const sendRes = await sendWhatsApp(phone, callMeBotKey, digestText, supabase, "digest");
+    const sendRes = await sendNotifications(notifyCfg, digestText, supabase, "digest");
 
     return new Response(
       JSON.stringify({ ok: true, mode: "digest", message: digestText, ...sendRes }),
