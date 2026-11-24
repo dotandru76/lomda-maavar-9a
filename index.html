@@ -1347,9 +1347,18 @@ table.proof-tbl th { background: #0f172a; color: var(--cyan); font-weight: 800; 
     </div>
 </div>
 
-<script src="vendor/supabase.min.js"></script>
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
 <script>
-const CLOUD = { url: "https://yebjvgyutmmyriwbrpmq.supabase.co", anonKey: "sb_publishable_g9UqQH7d-IcqPdV8B9dowQ_4Rtztl6w" };
+const CLOUD = {
+    apiKey: "AIzaSyDbgDXPfDhfqgGKw084-y990fUtBSW0XbY",
+    authDomain: "lomda-maavar-9a.firebaseapp.com",
+    projectId: "lomda-maavar-9a",
+    storageBucket: "lomda-maavar-9a.firebasestorage.app",
+    messagingSenderId: "173887542662",
+    appId: "1:173887542662:web:58f8c66bfea8a539b9c807"
+};
 
 /* ================= CUSTOM SVG VISUALS LIBRARY =================
    Groups marked data-rev="n" are revealed step by step by the
@@ -4623,9 +4632,11 @@ function gradeExam() {
 
 function retryExam() { openExam(curExamWeek.id); }
 
-/* ================= CLOUD AUTH & SYNC MODULE ================= */
+/* ================= CLOUD AUTH & SYNC MODULE (FIREBASE) ================= */
 const Cloud = (function () {
-    let client = null;
+    let app = null;
+    let auth = null;
+    let db = null;
     let curUser = null;
     let curUsername = "";
     let pushTimer = null;
@@ -4642,13 +4653,16 @@ const Cloud = (function () {
         return email.split("@")[0].toLowerCase();
     }
 
+    function isEnabled() {
+        return !!(CLOUD && CLOUD.apiKey && CLOUD.projectId && CLOUD.url !== "");
+    }
+
     function updateAuthUI() {
         const badge = document.getElementById("hudUserBadge");
         const authBtn = document.getElementById("hudAuthBtn");
         const outBtn = document.getElementById("hudLogoutBtn");
         if (!badge || !authBtn || !outBtn) return;
-        const enabled = !!(CLOUD && CLOUD.url && CLOUD.anonKey);
-        if (!enabled) {
+        if (!isEnabled()) {
             badge.hidden = true;
             authBtn.hidden = true;
             outBtn.hidden = true;
@@ -4685,7 +4699,6 @@ const Cloud = (function () {
         drKeys.forEach(k => {
             merged.drillXp[k] = Math.max(Number((localSt.drillXp || {})[k]) || 0, Number((cloudSt.drillXp || {})[k]) || 0);
         });
-        // Recalculate minimum earned XP from merged items so XP is never less than the union of solved items
         const calcXp = Object.keys(merged.doneSteps).length * 25
             + Object.keys(merged.doneExams).filter(k => merged.doneExams[k] > 0).length * 100
             + Object.values(merged.drillXp).reduce((a, b) => a + (Number(b) || 0), 0);
@@ -4697,19 +4710,26 @@ const Cloud = (function () {
     async function init() {
         try {
             updateAuthUI();
-            if (!CLOUD || !CLOUD.url || !CLOUD.anonKey) return;
-            if (typeof window.supabase === "undefined" || !window.supabase.createClient) return;
-            client = window.supabase.createClient(CLOUD.url, CLOUD.anonKey, {
-                auth: { persistSession: true, autoRefreshToken: true }
+            if (!isEnabled()) return;
+            if (typeof window.firebase === "undefined" || !window.firebase.initializeApp) return;
+            app = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(CLOUD);
+            auth = window.firebase.auth();
+            db = window.firebase.firestore();
+
+            auth.onAuthStateChanged(async (user) => {
+                if (user) {
+                    curUser = user;
+                    curUsername = extractUsername(user.email);
+                    updateAuthUI();
+                    await pullState();
+                    await pushState();
+                } else {
+                    curUser = null;
+                    curUsername = "";
+                    updateAuthUI();
+                }
             });
-            const { data } = await withTimeout(client.auth.getSession(), 6000);
-            if (data && data.session && data.session.user) {
-                curUser = data.session.user;
-                curUsername = extractUsername(curUser.email);
-                updateAuthUI();
-                await pullState();
-                await pushState();
-            }
+
             window.addEventListener("online", () => {
                 if (curUser) pushState();
             });
@@ -4717,9 +4737,9 @@ const Cloud = (function () {
     }
 
     async function signUp(user, pass) {
-        if (!client) return { ok: false, msg: "אין חיבור לשרת כרגע." };
+        if (!auth || !db) return { ok: false, msg: "אין חיבור לשרת כרגע." };
         const u = (user || "").trim().toLowerCase();
-        if (!/^[a-z0-9_]{3,20}$/.test(u)) {
+        if (!/^[a-z0-9_]{3,20}$/.test(u) || u === "teacher_admin") {
             return { ok: false, msg: "שם המשתמש חייב להכיל 3 עד 20 תווים: אותיות קטנות באנגלית, ספרות או קו תחתון בלבד." };
         }
         if (!pass || pass.length < 6) {
@@ -4727,19 +4747,9 @@ const Cloud = (function () {
         }
         const email = `${u}@students.app`;
         try {
-            const { data, error } = await withTimeout(client.auth.signUp({ email, password: pass }), 6000);
-            if (error) {
-                const m = (error.message || "").toLowerCase();
-                if (m.includes("already") || m.includes("registered") || m.includes("exists")) {
-                    return { ok: false, msg: "שם המשתמש כבר תפוס — בחרו שם אחר או לחצו על כניסה." };
-                }
-                if (m.includes("fetch") || m.includes("network")) {
-                    return { ok: false, msg: "אין חיבור לאינטרנט. אפשר להמשיך ללמוד במצב לא מקוון." };
-                }
-                return { ok: false, msg: "שגיאה בהרשמה. בדקו את הפרטים ונסו שוב." };
-            }
-            if (data && data.user) {
-                curUser = data.user;
+            const cred = await withTimeout(auth.createUserWithEmailAndPassword(email, pass), 6000);
+            if (cred && cred.user) {
+                curUser = cred.user;
                 curUsername = u;
                 updateAuthUI();
                 await pullState();
@@ -4748,29 +4758,29 @@ const Cloud = (function () {
                 return { ok: true };
             }
             return { ok: false, msg: "לא ניתן להשלים הרשמה כרגע." };
-        } catch (e) {
-            return { ok: false, msg: "אין חיבור לאינטרנט. אפשר להמשיך ללמוד במצב לא מקוון." };
+        } catch (err) {
+            const code = (err && err.code) || "";
+            if (code.includes("email-already-in-use")) {
+                return { ok: false, msg: "שם המשתמש כבר תפוס — בחרו שם אחר או לחצו על כניסה." };
+            }
+            if (code.includes("network-request-failed") || (err && err.message === "timeout")) {
+                return { ok: false, msg: "אין חיבור לאינטרנט. אפשר להמשיך ללמוד במצב לא מקוון." };
+            }
+            return { ok: false, msg: "שגיאה בהרשמה. בדקו את הפרטים ונסו שוב." };
         }
     }
 
     async function signIn(user, pass) {
-        if (!client) return { ok: false, msg: "אין חיבור לשרת כרגע." };
+        if (!auth || !db) return { ok: false, msg: "אין חיבור לשרת כרגע." };
         const u = (user || "").trim().toLowerCase();
         if (!/^[a-z0-9_]{3,20}$/.test(u) || !pass || pass.length < 6) {
             return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
         }
         const email = `${u}@students.app`;
         try {
-            const { data, error } = await withTimeout(client.auth.signInWithPassword({ email, password: pass }), 6000);
-            if (error) {
-                const m = (error.message || "").toLowerCase();
-                if (m.includes("invalid") || m.includes("credentials")) {
-                    return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
-                }
-                return { ok: false, msg: "אין חיבור לאינטרנט. אפשר להמשיך ללמוד במצב לא מקוון." };
-            }
-            if (data && data.user) {
-                curUser = data.user;
+            const cred = await withTimeout(auth.signInWithEmailAndPassword(email, pass), 6000);
+            if (cred && cred.user) {
+                curUser = cred.user;
                 curUsername = u;
                 updateAuthUI();
                 await pullState();
@@ -4779,7 +4789,11 @@ const Cloud = (function () {
                 return { ok: true };
             }
             return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
-        } catch (e) {
+        } catch (err) {
+            const code = (err && err.code) || "";
+            if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
+                return { ok: false, msg: "שם משתמש או סיסמה שגויים." };
+            }
             return { ok: false, msg: "אין חיבור לאינטרנט. אפשר להמשיך ללמוד במצב לא מקוון." };
         }
     }
@@ -4787,9 +4801,9 @@ const Cloud = (function () {
     async function signOut() {
         try {
             if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-            if (client && curUser) {
+            if (auth && curUser) {
                 await withTimeout(pushState(), 6000);
-                await withTimeout(client.auth.signOut(), 6000);
+                await withTimeout(auth.signOut(), 6000);
             }
         } catch (e) {}
         curUser = null;
@@ -4799,18 +4813,17 @@ const Cloud = (function () {
 
     async function pushState() {
         try {
-            if (!client || !curUser) return false;
-            const row = {
-                user_id: curUser.id,
-                username: curUsername,
-                state: state,
-                updated_at: new Date().toISOString()
-            };
-            const { error } = await withTimeout(
-                client.from("progress").upsert(row, { onConflict: "user_id" }),
+            if (!db || !curUser) return false;
+            await withTimeout(
+                db.collection("progress").doc(curUser.uid).set({
+                    user_id: curUser.uid,
+                    username: curUsername,
+                    state: state,
+                    updated_at: new Date().toISOString()
+                }, { merge: true }),
                 6000
             );
-            return !error;
+            return true;
         } catch (e) {
             return false;
         }
@@ -4818,20 +4831,23 @@ const Cloud = (function () {
 
     async function pullState() {
         try {
-            if (!client || !curUser) return false;
-            const { data, error } = await withTimeout(
-                client.from("progress").select("state").eq("user_id", curUser.id).maybeSingle(),
+            if (!db || !curUser) return false;
+            const snap = await withTimeout(
+                db.collection("progress").doc(curUser.uid).get(),
                 6000
             );
-            if (!error && data && data.state) {
-                state = mergeStates(state, data.state);
-                try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
-                updateHUD();
-                renderHome();
-                if (curLesson && document.getElementById("lessonView").classList.contains("active")) {
-                    renderStep();
+            if (snap && snap.exists) {
+                const data = snap.data();
+                if (data && data.state) {
+                    state = mergeStates(state, data.state);
+                    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+                    updateHUD();
+                    renderHome();
+                    if (curLesson && document.getElementById("lessonView").classList.contains("active")) {
+                        renderStep();
+                    }
+                    return true;
                 }
-                return true;
             }
             return false;
         } catch (e) {
@@ -4841,13 +4857,14 @@ const Cloud = (function () {
 
     async function logEvent(type, detail) {
         try {
-            if (!client || !curUser) return false;
+            if (!db || !curUser) return false;
             await withTimeout(
-                client.from("events").insert({
-                    user_id: curUser.id,
+                db.collection("events").add({
+                    user_id: curUser.uid,
                     username: curUsername,
                     type: type,
-                    detail: detail || {}
+                    detail: detail || {},
+                    created_at: new Date().toISOString()
                 }),
                 6000
             );
@@ -4858,7 +4875,7 @@ const Cloud = (function () {
     }
 
     function schedulePush() {
-        if (!client || !curUser) return;
+        if (!db || !curUser) return;
         if (pushTimer) clearTimeout(pushTimer);
         pushTimer = setTimeout(() => {
             pushTimer = null;
@@ -4877,7 +4894,8 @@ const Cloud = (function () {
         schedulePush,
         getUser: () => curUser,
         getUsername: () => curUsername,
-        getClient: () => client
+        getDb: () => db,
+        getAuth: () => auth
     };
 })();
 

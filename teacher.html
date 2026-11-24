@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>לוח בקרה למורה · לומדת מעבר</title>
+<style>
+:root {
+    --bg: #0b1120;
+    --bg-2: #0f172a;
+    --card: #131c31;
+    --card-2: #1a2640;
+    --border: #243352;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --cyan: #38bdf8;
+    --cyan-soft: rgba(56, 189, 248, 0.14);
+    --mint: #34d399;
+    --mint-soft: rgba(52, 211, 153, 0.14);
+    --amber: #fbbf24;
+    --amber-soft: rgba(251, 191, 36, 0.14);
+    --coral: #fb7185;
+    --coral-soft: rgba(251, 113, 133, 0.14);
+}
+* { box-sizing: border-box; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
+.hud {
+    background: rgba(15, 23, 42, 0.94);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.hud-title { font-size: 15pt; font-weight: 900; color: var(--text); }
+.hud-sub { font-size: 10pt; color: var(--muted); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 18px 60px; }
+.btn {
+    border-radius: 9px;
+    padding: 8px 16px;
+    font-size: 10.5pt;
+    font-weight: 800;
+    cursor: pointer;
+    border: 1.5px solid var(--border);
+    background: var(--card-2);
+    color: var(--text);
+}
+.btn:hover { border-color: var(--cyan); }
+.btn.primary { background: var(--cyan); color: #061422; border-color: var(--cyan); }
+.btn.mint { background: var(--mint); color: #052218; border-color: var(--mint); }
+.login-box {
+    max-width: 420px;
+    margin: 56px auto;
+    background: var(--card);
+    border: 1.5px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.login-box h2 { margin: 0; font-size: 16pt; }
+.login-box p { margin: 0; font-size: 10.5pt; color: var(--muted); line-height: 1.5; }
+.in-field {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1.5px solid var(--border);
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-size: 11.5pt;
+    font-weight: 700;
+    direction: ltr;
+    text-align: left;
+}
+.err-box {
+    display: none;
+    background: var(--coral-soft);
+    border: 1px solid var(--coral);
+    color: #ffe4e6;
+    border-radius: 9px;
+    padding: 9px 12px;
+    font-size: 10pt;
+    font-weight: 700;
+}
+.err-box.show { display: block; }
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 22px;
+}
+.kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+}
+.kpi-lbl { font-size: 10pt; color: var(--muted); font-weight: 700; }
+.kpi-val { font-size: 22pt; font-weight: 900; color: var(--cyan); margin-top: 4px; direction: ltr; display: inline-block; }
+.panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 22px;
+}
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.panel-head h2 { margin: 0; font-size: 14pt; font-weight: 900; }
+.digest-pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    font-size: 11pt;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    margin: 0;
+    color: var(--text);
+}
+table.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10.5pt;
+}
+table.tbl th, table.tbl td {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    text-align: right;
+}
+table.tbl th {
+    background: var(--bg-2);
+    color: var(--cyan);
+    font-weight: 800;
+}
+.ltr { direction: ltr; unicode-bidi: isolate; display: inline-block; font-weight: 800; }
+.tag-stuck {
+    background: var(--coral-soft);
+    color: var(--coral);
+    border: 1px solid rgba(251, 113, 133, 0.4);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 9.5pt;
+    font-weight: 800;
+}
+.tag-ok {
+    background: var(--mint-soft);
+    color: var(--mint);
+    border: 1px solid rgba(52, 211, 153, 0.4);
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 9.5pt;
+    font-weight: 800;
+}
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<header class="hud">
+    <div>
+        <div class="hud-title">לוח בקרה למורה · לומדת מעבר</div>
+        <div class="hud-sub">מעקב חי בזמן אמת אחרי תלמידים, צעדים, בחנים ודו״ח יומי</div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+        <button class="btn" id="notifBtn" onclick="enableBrowserNotifs()" hidden>הפעל התראות דפדפן</button>
+        <a class="btn" href="index.html" style="text-decoration:none;">מעבר ללומדה</a>
+        <button class="btn" id="logoutBtn" onclick="teacherLogout()" hidden>יציאה</button>
+    </div>
+</header>
+
+<div class="wrap">
+    <div class="login-box" id="loginBox">
+        <h2>כניסת מורה</h2>
+        <p>בכניסה הראשונה בחרו סיסמת מורה (לפחות 6 תווים) ולחצו על <strong>יצירת חשבון מורה ראשוני</strong>. מהפעם השנייה לחצו על <strong>כניסה</strong>.</p>
+        <input class="in-field" type="text" value="teacher_admin" disabled aria-label="משתמש מורה">
+        <input class="in-field" id="tPass" type="password" placeholder="סיסמת מורה (לפחות 6 תווים)" onkeydown="if(event.key==='Enter') teacherAuth('signin')">
+        <div class="err-box" id="tErr"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btn primary" onclick="teacherAuth('signin')">כניסה</button>
+            <button class="btn mint" onclick="teacherAuth('signup')">יצירת חשבון מורה ראשוני</button>
+        </div>
+    </div>
+
+    <div id="dashBox" hidden>
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-lbl">סה״כ תלמידים רשומים</div>
+                <div class="kpi-val" id="kpiTotal">0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-lbl">פעילים ב-24 שעות האחרונות</div>
+                <div class="kpi-val" id="kpiActive24">0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-lbl">נרשמו ב-24 שעות האחרונות</div>
+                <div class="kpi-val" id="kpiNew24">0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-lbl">תקועים כרגע (3+ ניסיונות)</div>
+                <div class="kpi-val" id="kpiStuck" style="color:var(--coral);">0</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <h2>סיכום יומי מוכן לשליחה (24 שעות אחרונות)</h2>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button class="btn primary" onclick="copyDigest()">העתק סיכום</button>
+                    <button class="btn mint" onclick="shareWhatsApp()">פתח בוואטסאפ</button>
+                </div>
+            </div>
+            <pre class="digest-pre" id="digestPre">טוען נתונים...</pre>
+        </div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <h2>טבלת התקדמות תלמידים (חי מתוך Firebase)</h2>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tbl">
+                    <thead>
+                        <tr>
+                            <th>שם משתמש</th>
+                            <th>נקודות (XP)</th>
+                            <th>צעדים שנפתרו (מתוך 32)</th>
+                            <th>שיעורים שהושלמו (מתוך 9)</th>
+                            <th>בחנים (ציונים)</th>
+                            <th>עדכון אחרון</th>
+                        </tr>
+                    </thead>
+                    <tbody id="progBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-head">
+                <h2>יומן אירועים אחרונים בזמן אמת</h2>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tbl">
+                    <thead>
+                        <tr>
+                            <th>זמן</th>
+                            <th>תלמיד</th>
+                            <th>סוג אירוע</th>
+                            <th>פרטים</th>
+                        </tr>
+                    </thead>
+                    <tbody id="evBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="vendor/firebase-app-compat.js"></script>
+<script src="vendor/firebase-auth-compat.js"></script>
+<script src="vendor/firebase-firestore-compat.js"></script>
+<script>
+const CLOUD = {
+    apiKey: "AIzaSyDbgDXPfDhfqgGKw084-y990fUtBSW0XbY",
+    authDomain: "lomda-maavar-9a.firebaseapp.com",
+    projectId: "lomda-maavar-9a",
+    storageBucket: "lomda-maavar-9a.firebasestorage.app",
+    messagingSenderId: "173887542662",
+    appId: "1:173887542662:web:58f8c66bfea8a539b9c807"
+};
+
+const TEACHER_EMAIL = "teacher_admin@students.app";
+firebase.initializeApp(CLOUD);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let unsubProg = null;
+let unsubEv = null;
+let allProgress = [];
+let allEvents = [];
+let initialLoadDone = false;
+
+auth.onAuthStateChanged(user => {
+    const isTeacher = user && user.email === TEACHER_EMAIL;
+    document.getElementById("loginBox").hidden = !!isTeacher;
+    document.getElementById("dashBox").hidden = !isTeacher;
+    document.getElementById("logoutBtn").hidden = !isTeacher;
+    document.getElementById("notifBtn").hidden = !isTeacher || !("Notification" in window);
+    if (isTeacher) startLiveListeners();
+    else stopLiveListeners();
+});
+
+async function teacherAuth(mode) {
+    const pass = document.getElementById("tPass").value;
+    const errEl = document.getElementById("tErr");
+    errEl.className = "err-box";
+    if (!pass || pass.length < 6) {
+        errEl.textContent = "הסיסמה חייבת להכיל לפחות 6 תווים.";
+        errEl.className = "err-box show";
+        return;
+    }
+    try {
+        if (mode === "signup") {
+            await auth.createUserWithEmailAndPassword(TEACHER_EMAIL, pass);
+        } else {
+            await auth.signInWithEmailAndPassword(TEACHER_EMAIL, pass);
+        }
+    } catch (err) {
+        const code = (err && err.code) || "";
+        if (code.includes("email-already-in-use")) {
+            errEl.textContent = "חשבון המורה כבר נוצר — הזינו את הסיסמה ולחצו על כניסה.";
+        } else {
+            errEl.textContent = "סיסמה שגויה או שטרם יצרתם את חשבון המורה הראשוני.";
+        }
+        errEl.className = "err-box show";
+    }
+}
+
+async function teacherLogout() {
+    stopLiveListeners();
+    await auth.signOut();
+}
+
+function enableBrowserNotifs() {
+    if (!("Notification" in window)) return;
+    Notification.requestPermission().then(p => {
+        if (p === "granted") {
+            document.getElementById("notifBtn").textContent = "התראות פעילות";
+        }
+    });
+}
+
+function stopLiveListeners() {
+    if (unsubProg) { unsubProg(); unsubProg = null; }
+    if (unsubEv) { unsubEv(); unsubEv = null; }
+    initialLoadDone = false;
+}
+
+function startLiveListeners() {
+    stopLiveListeners();
+    unsubProg = db.collection("progress").onSnapshot(snap => {
+        allProgress = snap.docs.map(d => d.data());
+        allProgress.sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""));
+        renderDashboard();
+    });
+    unsubEv = db.collection("events").orderBy("created_at", "desc").limit(300).onSnapshot(snap => {
+        if (initialLoadDone) {
+            snap.docChanges().forEach(ch => {
+                if (ch.type === "added") {
+                    const ev = ch.doc.data();
+                    if (ev.type === "signup" && "Notification" in window && Notification.permission === "granted") {
+                        new Notification("תלמיד חדש נרשם: " + ev.username);
+                    }
+                }
+            });
+        }
+        allEvents = snap.docs.map(d => d.data());
+        initialLoadDone = true;
+        renderDashboard();
+    });
+}
+
+function fmtDate(iso) {
+    if (!iso) return "-";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString("he-IL", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function buildDigestText() {
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, "0");
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const sinceMs = Date.now() - 24 * 60 * 60 * 1000;
+    const recent = allEvents.filter(e => new Date(e.created_at || 0).getTime() >= sinceMs).slice().reverse();
+
+    const users = new Map();
+    const stuckSet = new Set();
+
+    recent.forEach(ev => {
+        const u = ev.username || "לא ידוע";
+        if (!users.has(u)) users.set(u, { steps: new Set(), exams: [], drills: 0, isNew: false });
+        const s = users.get(u);
+        const d = ev.detail || {};
+        if (ev.type === "signup") s.isNew = true;
+        else if (ev.type === "step_done") s.steps.add((d.lesson || "") + "_" + (d.step ?? ""));
+        else if (ev.type === "exam_done") s.exams.push(d.max ? `${d.score}/${d.max}` : `${d.score ?? ""}`);
+        else if (ev.type === "drill") s.drills += Number(d.count || 5);
+        else if (ev.type === "step_fail" && Number(d.n || 3) >= 3) {
+            const sNum = typeof d.step === "number" ? d.step + 1 : d.step;
+            stuckSet.add(`${u} - ${d.lesson || ""} צעד ${sNum}`);
+        }
+    });
+
+    const fiveDaysMs = Date.now() - 5 * 24 * 60 * 60 * 1000;
+    const inactive = allProgress
+        .filter(p => p.updated_at && new Date(p.updated_at).getTime() < fiveDaysMs)
+        .map(p => p.username);
+
+    let newCount = 0;
+    users.forEach(v => { if (v.isNew) newCount++; });
+
+    const lines = [];
+    lines.push(`סיכום לומדת מעבר, ${dd}.${mm}`);
+    lines.push(`נכנסו: ${users.size} תלמידים (חדשים: ${newCount})`);
+    users.forEach((s, uname) => {
+        const exPart = s.exams.length ? `${s.exams.length} מבחנים (${s.exams.join(", ")})` : `0 מבחנים (-)`;
+        lines.push(`${uname}: ${s.steps.size} צעדים, ${exPart}, ${s.drills} תרגילים`);
+    });
+    lines.push(`תקועים (3 כשלונות ויותר באותו צעד): ${stuckSet.size ? Array.from(stuckSet).join(", ") : "אין"}`);
+    lines.push(`לא נכנסו 5 ימים ויותר: ${inactive.length ? inactive.join(", ") : "אין"}`);
+
+    return {
+        text: lines.join("\n"),
+        active24: users.size,
+        new24: newCount,
+        stuckCount: stuckSet.size
+    };
+}
+
+function renderDashboard() {
+    document.getElementById("kpiTotal").textContent = allProgress.length;
+    const dg = buildDigestText();
+    document.getElementById("kpiActive24").textContent = dg.active24;
+    document.getElementById("kpiNew24").textContent = dg.new24;
+    document.getElementById("kpiStuck").textContent = dg.stuckCount;
+    document.getElementById("digestPre").textContent = dg.text;
+
+    const pBody = document.getElementById("progBody");
+    pBody.innerHTML = allProgress.length === 0
+        ? `<tr><td colspan="6" style="color:var(--muted); text-align:center;">עדיין אין תלמידים רשומים</td></tr>`
+        : allProgress.map(p => {
+            const st = p.state || {};
+            const steps = Object.keys(st.doneSteps || {}).length;
+            const lessons = Object.keys(st.doneLessons || {}).length;
+            const examsObj = st.doneExams || {};
+            const exStr = Object.keys(examsObj).map(k => `${k}: ${examsObj[k]}`).join(", ") || "-";
+            return `<tr>
+                <td><span class="ltr">${p.username || ""}</span></td>
+                <td><span class="ltr">${st.xp || 0} XP</span></td>
+                <td><span class="ltr">${steps} / 32</span></td>
+                <td><span class="ltr">${lessons} / 9</span></td>
+                <td><span class="ltr">${exStr}</span></td>
+                <td>${fmtDate(p.updated_at)}</td>
+            </tr>`;
+        }).join("");
+
+    const typeLabels = {
+        signup: "הרשמה חדשה",
+        login: "כניסה",
+        lesson_open: "פתיחת שיעור",
+        step_done: "פתרון צעד",
+        step_fail: "קושי בצעד (3+ ניסיונות)",
+        exam_done: "סיום בוחן",
+        drill: "חמישיית תרגול"
+    };
+
+    const eBody = document.getElementById("evBody");
+    eBody.innerHTML = allEvents.slice(0, 60).map(ev => {
+        const d = ev.detail || {};
+        let det = "";
+        if (ev.type === "lesson_open") det = d.lesson || "";
+        else if (ev.type === "step_done") det = `${d.lesson || ""} צעד ${(d.step ?? 0) + 1} (ניסיונות: ${d.attempts || 1})`;
+        else if (ev.type === "step_fail") det = `<span class="tag-stuck">${d.lesson || ""} צעד ${(d.step ?? 0) + 1} (${d.n} שגיאות)</span>`;
+        else if (ev.type === "exam_done") det = `${d.exam || ""}: ${d.score}/${d.max}`;
+        else if (ev.type === "drill") det = `${d.lesson || ""} (+${d.count || 5})`;
+        else if (ev.type === "signup") det = `<span class="tag-ok">תלמיד חדש</span>`;
+        return `<tr>
+            <td>${fmtDate(ev.created_at)}</td>
+            <td><span class="ltr">${ev.username || ""}</span></td>
+            <td>${typeLabels[ev.type] || ev.type}</td>
+            <td>${det}</td>
+        </tr>`;
+    }).join("");
+}
+
+function copyDigest() {
+    const txt = document.getElementById("digestPre").textContent;
+    navigator.clipboard.writeText(txt);
+}
+
+function shareWhatsApp() {
+    const txt = document.getElementById("digestPre").textContent;
+    window.open("https://wa.me/?text=" + encodeURIComponent(txt), "_blank");
+}
+</script>
+</body>
+</html>
